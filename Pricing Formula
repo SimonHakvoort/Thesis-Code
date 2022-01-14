@@ -1,0 +1,149 @@
+import math
+import numpy
+import scipy.interpolate
+import scipy.integrate
+
+#This function will compute the Hh_n function for n=-1
+def Hh_minus_one(x):
+    y = numpy.exp((-(x ** 2) / 2))
+    return y
+
+#This function will compute factorials
+def factorial(n):
+    if n == 0:
+        return 1
+    elif n == 1:
+        return 1
+    else:
+        return n * factorial(n-1)
+
+#This function will compute the inner integral for Hh functions
+def integrand(t, x, n):
+    y = 1/(factorial(n)) * (t - x)**n * math.exp(-(t**2)/2)
+    return y
+          
+#This function will compute the Hh function by integration. It will use the function from above.
+def Hh_direct(n):
+    if n == -1:
+        return Hh_minus_one()
+    f = lambda x: scipy.integrate.quad(integrand, x, numpy.inf, args=(x,n))[0]
+    return f
+
+#With this function we compute the integrand of the I_n function
+def I_integrand(x, alpha, beta, delta , n):
+    y = math.exp(alpha * x) * Hh_direct(n)(beta * x - delta)
+    return y
+
+#Here we compute I_n 
+def I_integral(c, alpha, beta, delta, n):
+    integral = scipy.integrate.quad(I_integrand, c, 10, args = (alpha, beta, delta , n))[0]
+    return integral
+
+
+def Pi_n(labda, T, n):
+    y = math.exp(-labda * T)*((labda * T) ** n)/ factorial(n)
+    return y
+
+#Here we compute the P_n_k constants
+def P_n_k(n, k, n_1, n_2, p):
+    summation = 0
+    q = 1-p
+    if k == n:
+        return p ** n
+    for i in range(k, n):
+        product_one = factorial(n-k-1)/(factorial(i - k) * factorial(n -i - 1))
+        product_two = factorial(n)/(factorial(i) * factorial(n-i))
+        product_three = (n_1/(n_1+n_2)) ** (i - k)
+        product_four = (n_2/(n_1+n_2)) ** (n - i)
+        product_five = (p ** i) * (q ** (n-i))
+        total = product_one * product_two * product_three * product_four * product_five
+        summation += total
+    return summation
+
+#Here we compute the Q_n_k constants
+def Q_n_k(n, k, n_1, n_2, p):
+    summation = 0
+    q = 1-p
+    if k == n:
+        return q ** n
+    for i in range(k, n):
+        product_one = factorial(n-k-1)/(factorial(i-k) * factorial(n-i-1))
+        product_two = factorial(n) / (factorial(i) * factorial(n - i))
+        product_three = (n_1/(n_1+n_2)) ** (n-i)
+        product_four = (n_2 / (n_1 + n_2)) ** (i - k)
+        product_five = (p ** (n-i)) * (q ** i)
+        total = product_one * product_two * product_three * product_four * product_five
+        summation += total
+    return summation
+
+#Here we compute the first summation of theorem 4.9    
+def Summation_1(mu, sigma, labda, p, n_1, n_2, a, T):
+    first_product = math.exp(((sigma * n_1)**2) * T / 2) / (sigma * (2 * math.pi * T) ** (1/2))
+    sum_1 = 0
+    for n in range(1, 14):
+        sum_2 = 0
+        for k in range(1, n+1):
+            sum_2 += P_n_k(n, k, n_1, n_2, p) * ((sigma * (T ** (1/2)) * n_1) ** k) * I_integral((a - mu * T), (-n_1), (-1/(sigma * (T ** (1/2)))), (-sigma * n_1 * (T ** (1/2))), (k-1))
+        sum_1 += Pi_n(labda, T, n) * sum_2
+    total = sum_1 * first_product
+    return total
+
+#With this function we compute the second summation from theorem 4.9
+def Summation_2(mu, sigma, labda, p, n_1, n_2, a, T):
+    first_product = math.exp(((sigma * n_2)**2) * T / 2) / (sigma * (2 * math.pi * T) ** (1/2))
+    sum_1 = 0
+    for n in range(1, 14):
+        sum_2 = 0
+        for k in range(1, n+1):
+            sum_2 += Q_n_k(n, k, n_1, n_2, p) * ((sigma * (T ** (1/2)) * n_2) ** k) * I_integral((a - mu * T), n_2, (1/(sigma * (T ** (1/2)))), (-sigma * n_2 * (T ** (1/2))), (k-1))
+        sum_1 += Pi_n(labda, T, n) * sum_2
+    total = sum_1 * first_product
+    return total
+
+#This computes the first term (with a normal density) of theorem 4.9
+def constant(mu, sigma, labda, p, n_1, n_2, a, T):
+    pi_0 = Pi_n(labda, T, 0)
+    Phi = (Hh_direct(0)((a - mu * T)/(sigma * (T ** (1/2)))))/((2 * math.pi) ** (1/2))
+    y = pi_0 * Phi
+    return y
+
+#Here we compute the Upsilon formula
+def cdf(mu, sigma, labda, p, n_1, n_2, a, T):
+    part_one = Summation_1(mu, sigma, labda, p, n_1, n_2, a, T)
+    part_two = Summation_2(mu, sigma, labda, p, n_1, n_2, a, T)
+    part_three = constant(mu, sigma, labda, p, n_1, n_2, a, T)
+    total = part_one + part_two + part_three
+    return total
+
+#These values are from an example of Kou in: A Jump-Diffusion Model for Option Pricing
+sigma = 0.16
+labda = 1
+p = 0.4
+q = 1-p
+n_1 = 10
+n_2 = 5
+r = 0.05
+S_0 = 100
+K = 98
+T = 0.5
+
+zeta = (p * n_1)/(n_1 - 1) + (q * n_2)/ (n_2 + 1) - 1
+p_tilde = (p / (1 + zeta)) * (n_1 / (n_1 - 1))
+n_1_tilde = n_1 - 1
+n_2_tilde = n_2 + 1
+labda_tilde = labda * (zeta + 1)
+
+#With these 2 function we compute the call and put prices using the Upsilon formula
+def call_pricing():
+    part_one = S_0 * cdf((r+(sigma ** 2)/2 - labda * zeta), sigma, labda_tilde, p_tilde, n_1_tilde, n_2_tilde, numpy.log(K/S_0), T)
+    part_two = -K * math.exp(-r * T) * cdf((r-(sigma **2)/2 - labda * zeta), sigma, labda, p, n_1, n_2, numpy.log(K/S_0), T)
+    y = part_one+part_two
+    return y
+
+def put_pricing():
+    call_price = call_pricing()
+    put_price = call_price + K * math.exp(-r * T) - S_0
+    return put_price
+    
+print(call_pricing())   
+print(put_pricing())
