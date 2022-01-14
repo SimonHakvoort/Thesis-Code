@@ -1,0 +1,152 @@
+import math
+import numpy
+import scipy.interpolate
+import scipy.integrate
+import yfinance as yf
+import scipy.optimize
+
+
+#this will be the upperbound of the summation, which will replace the infinity
+summation_upper_bound = 8
+
+#function to compute factorials
+def factorial(n):
+    if n == 0:
+        return 1
+    elif n == 1:
+        return 1
+    else:
+        return n * factorial(n-1)
+
+#this will be the likelihood when there are no jumps (both up and down). 
+def f_0_0(r, s, labda_u, labda_d, n_u, n_d, mu, sigma):
+    constant = (2 * math.pi * s) ** (1/2) * sigma
+    exponential = ((-1) / (2 * (sigma ** 2) * s)) * ((r - mu * s + 0.5 * s * sigma ** 2) ** 2)
+    total = (1 / constant) * math.exp(exponential)
+    return total
+
+#This will compute the function which we need to integrate when there are 0 upward jumps and n downward jumps.
+def integrand_f_0_n(x, r, s, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    integrand = (-x) ** (n-1) * math.exp(n_d * x - (1/(2 * sigma ** 2 * s)) * (r - x - mu * s + 0.5 * sigma ** 2 * s) ** 2 )
+    return integrand
+
+#This function will compute the likelihood when there are 0 upward jumps and n downward jumps. We use the function above to compute the integral.
+def f_0_n(r, s, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    constant = (n_d ** n) / (factorial(n-1) * (2 * math.pi * s) ** (1/2) * sigma)
+    integral = scipy.integrate.quad(integrand_f_0_n, -10, 0, args = (r, s, n, labda_u, labda_d, n_u, n_d, mu, sigma))[0]
+    total = constant * integral
+    return total
+
+#This will compute the function which we need to integrate when there are m upward jumps and 0 downward jumps.
+def integrand_f_m_0(x, r, s, m, labda_u, labda_d, n_u, n_d, mu, sigma):
+    integrand = (x ** (m-1)) * math.exp(-n_u * x - 1/(2 * sigma ** 2 * s) * (r - x - mu * s + 0.5 * sigma ** 2 * s) ** 2)
+    return integrand
+
+#This function will compute the likelihood when there are 0 upward jumps and n downward jumps. We use the function above to compute the integral.
+def f_m_0(r, s, m, labda_u, labda_d, n_u, n_d, mu, sigma):
+    constant = (n_u ** m) / (factorial(m-1) * (2 * math.pi * s) ** (1/2) * sigma)
+    integral = scipy.integrate.quad(integrand_f_m_0, 0, 10, args = (r, s, m, labda_u, labda_d, n_u, n_d, mu, sigma))[0]
+    total = constant * integral
+    return total
+
+### We can compute the double integral in 2 different ways. Both ways will give the same results and we will show them both.
+### FIRST WAY: In the first way we use the scipy.integrate.quad command 2 times. The following 4 functions will do this
+def inner_integrand(x, t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    integrand = (-x) ** (n-1) * (t - x) ** (m-1) * math.exp((n_u + n_d) * x)
+    return integrand
+
+def inner_integral(t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    upperbound = 0
+    if t < 0:
+        upperbound = t
+    integral = scipy.integrate.quad(inner_integrand, -10, upperbound, args = (t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma))[0]
+    return integral
+    
+def outer_integrand(t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    part_one = inner_integral(t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma)
+    part_two = math.exp(-n_u * t) * math.exp(-1/(2 * sigma ** 2 * s) * (r - t - mu * s + 0.5 * (sigma ** 2) * s) ** 2)
+    total = part_one * part_two
+    return total
+
+def f_m_n(r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    constant = n_u ** m * n_d ** n / (factorial(m-1) * factorial(n-1) * (2 * math.pi * s) ** (1/2) * sigma)
+    integral = scipy.integrate.quad(outer_integrand, -10, 10, args = (r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma))[0]
+    total = constant * integral
+    return total
+
+### SECOND WAY: With the other way we directly compute the double integral using the scipy.integrate.dblquad command. This is a bit faster, so we will be using this further on.
+def double_integrand(x, t, r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    y = (-x) ** (n-1) * (t - x) ** (m-1) * math.exp((n_u + n_d) * x) * math.exp(-n_u * t) * math.exp(-1/(2 * sigma ** 2 * s) * (r - t - mu * s + 0.5 * (sigma ** 2) * s) ** 2)
+    return y
+
+def other_f_m_n(r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma):
+    integral = scipy.integrate.dblquad(double_integrand, -10, 10, -10, lambda t: min(0, t), args=(r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma))[0]
+    return integral
+
+#A function to easily compute the probabilities of a Poisson distribution. 
+def poisson_prob(s, labda, n):
+    prob = (s * labda) ** n * math.exp(-labda * s) / factorial(n)
+    return prob
+
+# This will compute the likelihood function using all of the function we defined earlier.
+def likelihood(r, s, labda_u, labda_d, n_u, n_d, mu, sigma):
+    part_one = poisson_prob(s, labda_u, 0) * poisson_prob(s, labda_d, 0) * f_0_0(r, s, labda_u, labda_d, n_u, n_d, mu, sigma)
+    part_two = 0
+    for n in range(1, summation_upper_bound):
+        part_two += poisson_prob(s, labda_d, n) * f_0_n(r, s, n, labda_u, labda_d, n_u, n_d, mu, sigma)
+    part_two *= poisson_prob(s, labda_u, 0)
+    part_three = 0
+    for m in range(1,summation_upper_bound):
+        part_three += poisson_prob(s, labda_u, m) * f_m_0(r, s, m, labda_u, labda_d, n_u, n_d, mu, sigma)
+    part_three *= poisson_prob(s, labda_d, 0)
+    part_four = 0
+    for m_ in range(1, summation_upper_bound):
+        for n_ in range(1, summation_upper_bound):
+            part_four += poisson_prob(s, labda_u, m) * poisson_prob(s, labda_d, n) * other_f_m_n(r, s, m, n, labda_u, labda_d, n_u, n_d, mu, sigma)
+    total = part_one + part_two + part_three + part_four
+    return total
+
+# This function will compute the loglikelihood. All the parameters of the model will be in the list x. 
+# The first element will be lambda_u (the intensity of upward jumps), the second element will be lambda_d (the intensity of downward jumps), etc.
+# We also directly multiply the function with -1 because we can only find a minimum with the scipy.optimize command.
+### The print command in this function will be useful when we are working with large data sets. When we need to turn of the computer
+### can easily see the 'best' parameters up to this timepoint. 
+def log_likelihood( x, D, s):
+    labda_u = x[0]
+    labda_d = x[1]
+    n_u = x[2]
+    n_d = x[3]
+    mu = x[4]
+    sigma = x[5]
+    total = 0
+    for r in D:
+        total += numpy.log(likelihood(r, s, labda_u, labda_d, n_u, n_d, mu, sigma))
+    print(-total, x)
+    return -total
+
+#This will compute a list of the log-difference of the chosen stock. We choose the S&P 500 (the ticker is SPY). We can choose the starting and end date.
+#Sometimes the list will contain nan (this is a bug from the y.finance library). We will be removing all these bugs.
+data = yf.download("SPY", start="2018-11-16", end="2021-11-16", interval = '1d')
+close_price= data['Close'].to_numpy()
+price = [x for x in close_price if str(x) != 'nan']
+return_rate = []
+for i in range(1, len(price)):
+    y = math.log(price[i]) - math.log(price[i-1])
+    return_rate.append(y)
+
+#These will be the bounds of all the parameters. We need to make sure that sigma > 0 because otherwise we divide by 0.
+bound_labda_u = (0.0001, 10000)
+bound_labda_d = (0.0001, 10000)
+bound_n_u = (1, 10000)
+bound_n_d = (0, 10000)
+bound_mu = (-10000, 10000)
+bound_sigma = (0.001,10000)
+boundaries = (bound_labda_u, bound_labda_d, bound_n_u, bound_n_d, bound_mu, bound_sigma)
+
+#This will be our initial starting parameters.
+x0 = [3.05668944e-03,1.12459879e-01,2.83322675e+01,4.70292218e+01,1.25674707e-03, 1.02730341e-02]
+
+#With this command we will minimize the loglikelihood. 
+print(scipy.optimize.minimize(log_likelihood, x0, args=(return_rate, 1), bounds = boundaries, method='Nelder-Mead'))
+
+ 
