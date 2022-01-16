@@ -3,6 +3,12 @@ import numpy
 import scipy.interpolate
 import scipy.integrate
 
+#The upper bound for the summations
+upperbound_summation = 14
+
+#The upper bound for the improper integrals
+upperbound_integration = 10
+
 #This function will compute the Hh_n function for n=-1
 def Hh_minus_one(x):
     y = numpy.exp((-(x ** 2) / 2))
@@ -36,7 +42,7 @@ def I_integrand(x, alpha, beta, delta , n):
 
 #Here we compute I_n 
 def I_integral(c, alpha, beta, delta, n):
-    integral = scipy.integrate.quad(I_integrand, c, 10, args = (alpha, beta, delta , n))[0]
+    integral = scipy.integrate.quad(I_integrand, c, upperbound_integration, args = (alpha, beta, delta , n))[0]
     return integral
 
 
@@ -80,7 +86,7 @@ def Q_n_k(n, k, n_1, n_2, p):
 def Summation_1(mu, sigma, labda, p, n_1, n_2, a, T):
     first_product = math.exp(((sigma * n_1)**2) * T / 2) / (sigma * (2 * math.pi * T) ** (1/2))
     sum_1 = 0
-    for n in range(1, 14):
+    for n in range(1, upperbound_summation):
         sum_2 = 0
         for k in range(1, n+1):
             sum_2 += P_n_k(n, k, n_1, n_2, p) * ((sigma * (T ** (1/2)) * n_1) ** k) * I_integral((a - mu * T), (-n_1), (-1/(sigma * (T ** (1/2)))), (-sigma * n_1 * (T ** (1/2))), (k-1))
@@ -92,7 +98,7 @@ def Summation_1(mu, sigma, labda, p, n_1, n_2, a, T):
 def Summation_2(mu, sigma, labda, p, n_1, n_2, a, T):
     first_product = math.exp(((sigma * n_2)**2) * T / 2) / (sigma * (2 * math.pi * T) ** (1/2))
     sum_1 = 0
-    for n in range(1, 14):
+    for n in range(1, upperbound_summation):
         sum_2 = 0
         for k in range(1, n+1):
             sum_2 += Q_n_k(n, k, n_1, n_2, p) * ((sigma * (T ** (1/2)) * n_2) ** k) * I_integral((a - mu * T), n_2, (1/(sigma * (T ** (1/2)))), (-sigma * n_2 * (T ** (1/2))), (k-1))
@@ -147,3 +153,5 @@ def put_pricing():
     
 print(call_pricing())   
 print(put_pricing())
+
+        
